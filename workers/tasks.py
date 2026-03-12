@@ -86,6 +86,61 @@ def daily_reconciliation_job() -> dict:
     return result
 
 
+@celery_app.task(
+    name="workers.tasks.poll_airwallex_payments",
+    bind=True,
+)
+def poll_airwallex_payments(self) -> dict:
+    """
+    Fallback poller for transactions stuck in PAYOUT_PENDING.
+
+    Runs every 15 minutes via Celery Beat. Covers the case where an
+    Airwallex webhook was dropped or delayed.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy import select
+    from core.config import settings
+    from models.transaction import Transaction, TransactionStatus
+    from services import airwallex as airwallex_svc
+    from services.transaction import settle_from_airwallex_webhook
+
+    async def _poll():
+        engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        resolved = []
+        async with SessionLocal() as db:
+            result = await db.execute(
+                select(Transaction).where(
+                    Transaction.status == TransactionStatus.PAYOUT_PENDING,
+                    Transaction.payout_order_id.isnot(None),
+                )
+            )
+            pending = result.scalars().all()
+
+            for tx in pending:
+                try:
+                    payment = await airwallex_svc.get_payment_status(tx.payout_order_id)
+                    if payment.status == "PAID":
+                        await settle_from_airwallex_webhook(db, tx.payout_order_id, success=True)
+                        resolved.append({"tx": str(tx.id), "result": "settled"})
+                    elif payment.status in ("FAILED", "CANCELLED"):
+                        await settle_from_airwallex_webhook(
+                            db, tx.payout_order_id, success=False,
+                            failure_reason=payment.error_message,
+                        )
+                        resolved.append({"tx": str(tx.id), "result": "failed"})
+                except Exception as exc:
+                    logger.error("poll_airwallex_payments: error checking tx %s: %s", tx.id, exc)
+
+            await db.commit()
+        return resolved
+
+    results = _run_async(_poll())
+    logger.info("poll_airwallex_payments: resolved %d transactions", len(results))
+    return {"resolved": results}
+
+
 @celery_app.task(name="workers.tasks.alert_failed_transaction")
 def alert_failed_transaction(transaction_id: str, reason: str) -> None:
     logger.error(

@@ -10,9 +10,14 @@ class Settings(BaseSettings):
     # Redis / Celery
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Wise API
+    # Wise API (INR→USD FX leg)
     WISE_API_KEY: str = "stub-key"
     WISE_API_URL: str = "https://api.transferwise.com"
+
+    # Airwallex (LOCAL rail USD delivery, replaces SWIFT)
+    AIRWALLEX_CLIENT_ID: str = "stub-client-id"
+    AIRWALLEX_API_KEY: str = "stub-airwallex-key"
+    AIRWALLEX_WEBHOOK_SECRET: str = "stub-webhook-secret"
 
     # FX
     RATE_LOCK_TTL_SECONDS: int = 90

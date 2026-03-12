@@ -18,6 +18,7 @@ class TransactionStatus(str, enum.Enum):
     FUNDS_DEBITED = "funds_debited"
     FX_EXECUTED = "fx_executed"
     FUNDS_CREDITED = "funds_credited"
+    PAYOUT_PENDING = "payout_pending"               # payment submitted to Airwallex; awaiting LOCAL rail delivery
     SETTLED = "settled"
     FAILED = "failed"
 
@@ -29,7 +30,8 @@ ALLOWED_TRANSITIONS: dict[TransactionStatus, set[TransactionStatus]] = {
     TransactionStatus.COMPLIANCE_CHECK: {TransactionStatus.FUNDS_DEBITED, TransactionStatus.FAILED},
     TransactionStatus.FUNDS_DEBITED: {TransactionStatus.FX_EXECUTED, TransactionStatus.FAILED},
     TransactionStatus.FX_EXECUTED: {TransactionStatus.FUNDS_CREDITED, TransactionStatus.FAILED},
-    TransactionStatus.FUNDS_CREDITED: {TransactionStatus.SETTLED, TransactionStatus.FAILED},
+    TransactionStatus.FUNDS_CREDITED: {TransactionStatus.PAYOUT_PENDING, TransactionStatus.FAILED},
+    TransactionStatus.PAYOUT_PENDING: {TransactionStatus.SETTLED, TransactionStatus.FAILED},
     TransactionStatus.SETTLED: set(),
     TransactionStatus.FAILED: set(),
 }
@@ -66,6 +68,9 @@ class Transaction(Base):
 
     # Wire reference from FX provider
     fx_reference_id = Column(String(255), nullable=True)
+
+    # Airwallex payment_id — set when payment is submitted to LOCAL rails
+    payout_order_id = Column(String(255), nullable=True, index=True)
 
     beneficiary_id = Column(UUID(as_uuid=True), ForeignKey("beneficiaries.id"), nullable=True, index=True)
 

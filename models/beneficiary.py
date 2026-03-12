@@ -19,6 +19,9 @@ class Beneficiary(Base):
     routing_number = Column(String(50),  nullable=True)
     country_code   = Column(String(2),   nullable=False)
     currency       = Column(String(3),   nullable=False)
+    # Cached after first Airwallex registration — avoids re-registering on every payment
+    airwallex_beneficiary_id = Column(String(255), nullable=True)
+
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
     transactions   = relationship("Transaction", back_populates="beneficiary")

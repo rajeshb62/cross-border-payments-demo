@@ -1,8 +1,11 @@
 """Transaction state machine and orchestration."""
 from __future__ import annotations
 
+import logging
 import uuid as uuid_module
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +21,7 @@ from models.transaction import (
 from services import compliance as compliance_svc
 from services import fx_rate as fx_rate_svc
 from services import ledger as ledger_svc
+from services import airwallex as airwallex_svc
 
 
 async def create_transaction(
@@ -138,16 +142,20 @@ async def execute_transaction(db: AsyncSession, transaction_id: str) -> Transact
         )
         tx.fx_reference_id = f"WISE-STUB-{str(tx.id)[:8].upper()}"
 
-        # ── 5. Credit USD ─────────────────────────────────────────────────────
-        _transition(db, tx, TransactionStatus.FUNDS_CREDITED, f"USD {amount_usd} credited")
+        # ── 5. Credit USD (internal ledger) ───────────────────────────────────
+        _transition(db, tx, TransactionStatus.FUNDS_CREDITED, f"USD {amount_usd} credited to nostro")
         await ledger_svc.record_usd_credit(db, str(tx.id), amount_usd)
 
         # ── 6. Update LRS ─────────────────────────────────────────────────────
         await compliance_svc.update_lrs_usage(db, tx.user_id, amount_usd)
 
-        # ── 7. Settle ─────────────────────────────────────────────────────────
-        _transition(db, tx, TransactionStatus.SETTLED, "Transaction settled successfully")
+        # ── 7. Submit LOCAL payment via Airwallex (replaces SWIFT) ───────────
+        _transition(db, tx, TransactionStatus.PAYOUT_PENDING, "Payment submitted to Airwallex LOCAL rails")
+        payment = await _submit_airwallex_payment(db, tx, amount_usd)
+        tx.payout_order_id = payment.payment_id
         await db.flush()
+        # Settlement is async — Airwallex calls our webhook when PAID.
+        # The Celery task polls as a fallback (see workers/tasks.py).
 
     except Exception as exc:
         if tx.status not in (TransactionStatus.SETTLED, TransactionStatus.FAILED):
@@ -162,6 +170,87 @@ async def execute_transaction(db: AsyncSession, transaction_id: str) -> Transact
             await db.flush()
         raise
 
+    return tx
+
+
+async def _submit_airwallex_payment(
+    db: AsyncSession,
+    tx: Transaction,
+    amount_usd: Decimal,
+) -> airwallex_svc.AirwallexPaymentResponse:
+    """
+    Ensure the beneficiary is registered with Airwallex, then submit a LOCAL
+    USD payment — bypassing SWIFT entirely.
+
+    Step 1 — Register beneficiary (once, cached): if the Beneficiary doesn't
+    have an airwallex_beneficiary_id yet, call Airwallex to register their bank
+    account details and cache the returned ID.
+
+    Step 2 — Create payment: submit a LOCAL USD payment from our Airwallex
+    wallet. Airwallex routes via domestic ACH/Faster Payments at the destination
+    instead of SWIFT, saving fees and delivering same-day or next-day.
+    """
+    if tx.beneficiary is None:
+        raise ValueError(f"Transaction {tx.id} has no beneficiary — cannot route via Airwallex")
+
+    b = tx.beneficiary
+
+    # ── Step 1: register with Airwallex (lazy, cached) ────────────────────────
+    if not b.airwallex_beneficiary_id:
+        # Use ABA routing for US accounts, SWIFT BIC for international
+        is_us = b.country_code == "US"
+        ben = await airwallex_svc.create_beneficiary(
+            beneficiary_id=str(b.id),
+            full_name=b.full_name,
+            account_number=b.account_number,
+            bank_country_code=b.country_code,
+            bank_name=b.bank_name,
+            aba=b.routing_number if is_us else None,
+            swift_code=b.swift_bic if not is_us else None,
+        )
+        b.airwallex_beneficiary_id = ben.beneficiary_id
+        await db.flush()
+        logger.info("Airwallex beneficiary registered for %s: %s", b.id, ben.beneficiary_id)
+
+    # ── Step 2: create LOCAL payment ──────────────────────────────────────────
+    return await airwallex_svc.create_payment(
+        transaction_id=str(tx.id),
+        amount_usd=amount_usd,
+        airwallex_beneficiary_id=b.airwallex_beneficiary_id,
+        purpose_code=tx.purpose_code,
+    )
+
+
+async def settle_from_airwallex_webhook(
+    db: AsyncSession,
+    payment_id: str,
+    success: bool,
+    failure_reason: str | None = None,
+) -> Transaction:
+    """
+    Called by the Airwallex webhook handler.
+    Transitions PAYOUT_PENDING → SETTLED or FAILED.
+    """
+    result = await db.execute(
+        select(Transaction).where(Transaction.payout_order_id == payment_id)
+    )
+    tx = result.scalar_one_or_none()
+    if tx is None:
+        raise ValueError(f"No transaction found for Airwallex payment_id={payment_id}")
+
+    if success:
+        _transition(db, tx, TransactionStatus.SETTLED, f"Airwallex LOCAL payment delivered (payment {payment_id})")
+    else:
+        db.add(TransactionEvent(
+            transaction_id=tx.id,
+            from_status=tx.status,
+            to_status=TransactionStatus.FAILED,
+            note=failure_reason or "Airwallex payment failed",
+        ))
+        tx.status = TransactionStatus.FAILED
+        tx.failure_reason = failure_reason
+
+    await db.flush()
     return tx
 
 

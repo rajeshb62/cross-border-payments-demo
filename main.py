@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.routes import transactions, rates, compliance, beneficiaries
+from api.routes import transactions, rates, compliance, beneficiaries, webhooks
 from core.config import settings
 from core.exceptions import (
     PaymentBaseException,
@@ -56,6 +56,7 @@ app.include_router(transactions.router, prefix="/transactions", tags=["transacti
 app.include_router(rates.router, prefix="/rates", tags=["rates"])
 app.include_router(compliance.router, prefix="/compliance", tags=["compliance"])
 app.include_router(beneficiaries.router, prefix="/beneficiaries", tags=["beneficiaries"])
+app.include_router(webhooks.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
