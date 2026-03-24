@@ -26,7 +26,7 @@ class ReconciliationLog(Base):
     expected_settlement_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     actual_settlement_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     status: Mapped[ReconciliationStatus] = mapped_column(
-        SAEnum(ReconciliationStatus, name="reconciliation_status_enum"),
+        SAEnum(ReconciliationStatus, name="reconciliation_status_enum", create_type=False),
         nullable=False,
         default=ReconciliationStatus.pending,
     )

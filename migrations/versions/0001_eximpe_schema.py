@@ -5,8 +5,6 @@ Revises:
 Create Date: 2026-03-24
 """
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = "0001"
 down_revision = None
@@ -15,86 +13,145 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Enums
-    op.execute("CREATE TYPE settlement_currency_enum AS ENUM ('USD', 'EUR', 'GBP', 'SGD', 'AED', 'HKD', 'CNH')")
-    op.execute("CREATE TYPE merchant_status_enum AS ENUM ('pending_kyc', 'active', 'suspended')")
-    op.execute("CREATE TYPE payment_method_enum AS ENUM ('upi', 'netbanking', 'card')")
-    op.execute("CREATE TYPE transaction_status_enum AS ENUM ('initiated', 'inr_collected', 'fx_converted', 'settled', 'failed')")
-    op.execute("CREATE TYPE reconciliation_status_enum AS ENUM ('matched', 'mismatch', 'pending')")
+    # ── Enum types ────────────────────────────────────────────────────────────
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE settlement_currency_enum AS ENUM ('USD', 'EUR', 'GBP', 'SGD', 'AED', 'HKD', 'CNH');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE merchant_status_enum AS ENUM ('pending_kyc', 'active', 'suspended');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE kyb_status_enum AS ENUM ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE business_type_enum AS ENUM ('ECOMMERCE', 'SAAS', 'MARKETPLACE', 'D2C');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE payment_method_enum AS ENUM ('upi', 'netbanking', 'card');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE transaction_status_enum AS ENUM (
+                'initiated', 'inr_collected', 'upi_confirmed', 'fx_converted', 'settled', 'failed'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE reconciliation_status_enum AS ENUM ('matched', 'mismatch', 'pending');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """)
 
-    op.create_table(
-        "merchants",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("email", sa.String(255), nullable=False, unique=True),
-        sa.Column("country", sa.String(10), nullable=False),
-        sa.Column("settlement_currency", sa.Enum("USD", "EUR", "GBP", "SGD", "AED", "HKD", "CNH", name="settlement_currency_enum", create_type=False), nullable=False),
-        sa.Column("settlement_account_details", postgresql.JSON(), nullable=False),
-        sa.Column("status", sa.Enum("pending_kyc", "active", "suspended", name="merchant_status_enum", create_type=False), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-    )
+    # ── Tables ────────────────────────────────────────────────────────────────
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS merchants (
+            id UUID PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            country VARCHAR(10) NOT NULL,
+            settlement_currency settlement_currency_enum NOT NULL,
+            settlement_account_details JSON NOT NULL DEFAULT '{}',
+            status merchant_status_enum NOT NULL DEFAULT 'pending_kyc',
+            kyb_status kyb_status_enum NOT NULL DEFAULT 'PENDING',
+            business_type business_type_enum,
+            website_url VARCHAR(500),
+            incorporation_number VARCHAR(100),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
-    op.create_table(
-        "virtual_accounts",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("merchant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("merchants.id"), nullable=False),
-        sa.Column("inr_account_number", sa.String(20), nullable=False, unique=True),
-        sa.Column("ifsc_code", sa.String(20), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, default=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-    )
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS virtual_accounts (
+            id UUID PRIMARY KEY,
+            merchant_id UUID NOT NULL REFERENCES merchants(id),
+            inr_account_number VARCHAR(20) NOT NULL UNIQUE,
+            ifsc_code VARCHAR(20) NOT NULL DEFAULT 'EXIMPE0001',
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
-    op.create_table(
-        "transactions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("merchant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("merchants.id"), nullable=False),
-        sa.Column("virtual_account_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("virtual_accounts.id"), nullable=False),
-        sa.Column("payment_method", sa.Enum("upi", "netbanking", "card", name="payment_method_enum", create_type=False), nullable=False),
-        sa.Column("inr_amount", sa.Numeric(18, 4), nullable=False),
-        sa.Column("fx_rate", sa.Numeric(18, 6), nullable=True),
-        sa.Column("settlement_currency", sa.Enum("USD", "EUR", "GBP", "SGD", "AED", "HKD", "CNH", name="settlement_currency_enum", create_type=False), nullable=False),
-        sa.Column("settlement_amount", sa.Numeric(18, 4), nullable=True),
-        sa.Column("fee_inr", sa.Numeric(18, 4), nullable=True),
-        sa.Column("tcs_applicable", sa.Boolean(), nullable=False, default=False),
-        sa.Column("tcs_rate", sa.Numeric(6, 4), nullable=False, default=0),
-        sa.Column("purpose_code", sa.String(20), nullable=False),
-        sa.Column("status", sa.Enum("initiated", "inr_collected", "fx_converted", "settled", "failed", name="transaction_status_enum", create_type=False), nullable=False),
-        sa.Column("payer_upi_id", sa.String(100), nullable=True),
-        sa.Column("payer_bank", sa.String(100), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-    )
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS transactions (
+            id UUID PRIMARY KEY,
+            merchant_id UUID NOT NULL REFERENCES merchants(id),
+            virtual_account_id UUID NOT NULL REFERENCES virtual_accounts(id),
+            payment_method payment_method_enum NOT NULL,
+            inr_amount NUMERIC(18,4) NOT NULL,
+            fx_rate NUMERIC(18,6),
+            settlement_currency settlement_currency_enum NOT NULL,
+            settlement_amount NUMERIC(18,4),
+            fee_inr NUMERIC(18,4),
+            purpose_code VARCHAR(20) NOT NULL,
+            status transaction_status_enum NOT NULL DEFAULT 'initiated',
+            payer_upi_id VARCHAR(100),
+            payer_bank VARCHAR(100),
+            upi_deep_link VARCHAR(1000),
+            upi_qr_payload VARCHAR(1000),
+            vpa VARCHAR(100),
+            upi_ref VARCHAR(100),
+            payment_expires_at TIMESTAMPTZ,
+            usd_equivalent NUMERIC(18,4),
+            opgsp_cap_applied BOOLEAN DEFAULT FALSE,
+            fx_rate_locked NUMERIC(18,6),
+            fx_rate_locked_at TIMESTAMPTZ,
+            fx_rate_expires_at TIMESTAMPTZ,
+            fx_rate_final NUMERIC(18,6),
+            amount_inr_collected NUMERIC(18,4),
+            merchant_country VARCHAR(10),
+            opgsp_ref VARCHAR(100),
+            settlement_initiated_at TIMESTAMPTZ,
+            settlement_completed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
-    op.create_index("ix_transactions_merchant_id", "transactions", ["merchant_id"])
-    op.create_index("ix_transactions_status", "transactions", ["status"])
+    op.execute("CREATE INDEX IF NOT EXISTS ix_transactions_merchant_id ON transactions(merchant_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_transactions_status ON transactions(status)")
 
-    op.create_table(
-        "fx_rates",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("currency_pair", sa.String(20), nullable=False, index=True),
-        sa.Column("rate", sa.Numeric(18, 6), nullable=False),
-        sa.Column("fetched_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-    )
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS fx_rates (
+            id UUID PRIMARY KEY,
+            currency_pair VARCHAR(20) NOT NULL,
+            rate NUMERIC(18,6) NOT NULL,
+            fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_fx_rates_currency_pair ON fx_rates(currency_pair)")
 
-    op.create_table(
-        "reconciliation_logs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("transaction_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("transactions.id"), nullable=False),
-        sa.Column("expected_settlement_amount", sa.Numeric(18, 4), nullable=False),
-        sa.Column("actual_settlement_amount", sa.Numeric(18, 4), nullable=False),
-        sa.Column("status", sa.Enum("matched", "mismatch", "pending", name="reconciliation_status_enum", create_type=False), nullable=False),
-        sa.Column("checked_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-    )
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS reconciliation_logs (
+            id UUID PRIMARY KEY,
+            transaction_id UUID NOT NULL REFERENCES transactions(id),
+            expected_settlement_amount NUMERIC(18,4) NOT NULL,
+            actual_settlement_amount NUMERIC(18,4) NOT NULL,
+            status reconciliation_status_enum NOT NULL DEFAULT 'pending',
+            checked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
 
 
 def downgrade() -> None:
-    op.drop_table("reconciliation_logs")
-    op.drop_table("fx_rates")
-    op.drop_table("transactions")
-    op.drop_table("virtual_accounts")
-    op.drop_table("merchants")
+    op.execute("DROP TABLE IF EXISTS reconciliation_logs")
+    op.execute("DROP TABLE IF EXISTS fx_rates")
+    op.execute("DROP TABLE IF EXISTS transactions")
+    op.execute("DROP TABLE IF EXISTS virtual_accounts")
+    op.execute("DROP TABLE IF EXISTS merchants")
     op.execute("DROP TYPE IF EXISTS reconciliation_status_enum")
     op.execute("DROP TYPE IF EXISTS transaction_status_enum")
     op.execute("DROP TYPE IF EXISTS payment_method_enum")
+    op.execute("DROP TYPE IF EXISTS business_type_enum")
+    op.execute("DROP TYPE IF EXISTS kyb_status_enum")
     op.execute("DROP TYPE IF EXISTS merchant_status_enum")
     op.execute("DROP TYPE IF EXISTS settlement_currency_enum")

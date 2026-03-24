@@ -47,22 +47,22 @@ class Merchant(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     country: Mapped[str] = mapped_column(String(10), nullable=False)
     settlement_currency: Mapped[SettlementCurrency] = mapped_column(
-        SAEnum(SettlementCurrency, name="settlement_currency_enum"), nullable=False
+        SAEnum(SettlementCurrency, name="settlement_currency_enum", create_type=False), nullable=False
     )
     settlement_account_details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[MerchantStatus] = mapped_column(
-        SAEnum(MerchantStatus, name="merchant_status_enum"),
+        SAEnum(MerchantStatus, name="merchant_status_enum", create_type=False),
         nullable=False,
         default=MerchantStatus.pending_kyc,
     )
     # KYB / onboarding fields
     kyb_status: Mapped[KYBStatus] = mapped_column(
-        SAEnum(KYBStatus, name="kyb_status_enum"),
+        SAEnum(KYBStatus, name="kyb_status_enum", create_type=False),
         nullable=False,
         default=KYBStatus.PENDING,
     )
     business_type: Mapped[BusinessType] = mapped_column(
-        SAEnum(BusinessType, name="business_type_enum"),
+        SAEnum(BusinessType, name="business_type_enum", create_type=False),
         nullable=True,
     )
     website_url: Mapped[str] = mapped_column(String(500), nullable=True)

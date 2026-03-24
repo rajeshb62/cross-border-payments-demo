@@ -37,18 +37,18 @@ class Transaction(Base):
         UUID(as_uuid=True), ForeignKey("virtual_accounts.id"), nullable=False
     )
     payment_method: Mapped[PaymentMethod] = mapped_column(
-        SAEnum(PaymentMethod, name="payment_method_enum"), nullable=False
+        SAEnum(PaymentMethod, name="payment_method_enum", create_type=False), nullable=False
     )
     inr_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     fx_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=True)
     settlement_currency: Mapped[SettlementCurrency] = mapped_column(
-        SAEnum(SettlementCurrency, name="settlement_currency_enum"), nullable=False
+        SAEnum(SettlementCurrency, name="settlement_currency_enum", create_type=False), nullable=False
     )
     settlement_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
     fee_inr: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
     purpose_code: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[TransactionStatus] = mapped_column(
-        SAEnum(TransactionStatus, name="transaction_status_enum"),
+        SAEnum(TransactionStatus, name="transaction_status_enum", create_type=False),
         nullable=False,
         default=TransactionStatus.initiated,
     )

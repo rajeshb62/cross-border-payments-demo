@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from core.config import settings
 from core.database import Base
-from models.merchant import Merchant, MerchantStatus, SettlementCurrency, VirtualAccount
+from models.merchant import Merchant, MerchantStatus, KYBStatus, SettlementCurrency, VirtualAccount
 from models.transaction import Transaction, TransactionStatus, PaymentMethod
 import models.fx_rate        # noqa: ensure metadata registered
 import models.reconciliation  # noqa: ensure metadata registered
@@ -67,26 +67,38 @@ async def seed():
     async with session_factory() as db:
         merchant_ids = []
 
+        from sqlalchemy import select
         for m_data in MERCHANTS:
-            merchant = Merchant(
-                name=m_data["name"],
-                email=m_data["email"],
-                country=m_data["country"],
-                settlement_currency=m_data["settlement_currency"],
-                settlement_account_details=m_data["settlement_account_details"],
-                status=MerchantStatus.active,
-            )
-            db.add(merchant)
-            await db.flush()
+            # Idempotent: skip if already exists
+            existing = await db.execute(select(Merchant).where(Merchant.email == m_data["email"]))
+            merchant = existing.scalar_one_or_none()
+            if merchant is None:
+                merchant = Merchant(
+                    name=m_data["name"],
+                    email=m_data["email"],
+                    country=m_data["country"],
+                    settlement_currency=m_data["settlement_currency"],
+                    settlement_account_details=m_data["settlement_account_details"],
+                    status=MerchantStatus.active,
+                    kyb_status=KYBStatus.APPROVED,
+                )
+                db.add(merchant)
+                await db.flush()
 
-            va = VirtualAccount(
-                merchant_id=merchant.id,
-                inr_account_number=str(hash(m_data["email"]) % 10**12).zfill(12),
-                ifsc_code="EXIMPE0001",
-                is_active=True,
-            )
-            db.add(va)
-            await db.flush()
+                va = VirtualAccount(
+                    merchant_id=merchant.id,
+                    inr_account_number=str(hash(m_data["email"]) % 10**12).zfill(12),
+                    ifsc_code="EXIMPE0001",
+                    is_active=True,
+                )
+                db.add(va)
+                await db.flush()
+            else:
+                # Fetch the VA for existing merchant
+                va_result = await db.execute(
+                    select(VirtualAccount).where(VirtualAccount.merchant_id == merchant.id).limit(1)
+                )
+                va = va_result.scalar_one()
 
             merchant_ids.append((merchant.id, va.id, m_data["settlement_currency"], m_data["purpose_code"]))
 
@@ -101,17 +113,19 @@ async def seed():
             (merchant_ids[2], Decimal("800000"), PaymentMethod.netbanking, TransactionStatus.settled),
         ]
 
+        mid_to_country = {mid: m_data["country"] for (mid, _, _, _), m_data in zip(merchant_ids, MERCHANTS)}
+
         for (m_id, va_id, currency, purpose_code), amount, method, status in sample_txns:
+            fee_inr = (amount * Decimal("0.015")).quantize(Decimal("0.01"))
             tx = Transaction(
                 merchant_id=m_id,
                 virtual_account_id=va_id,
                 payment_method=method,
                 inr_amount=amount,
                 settlement_currency=currency,
-                fee_inr=(amount * Decimal("0.015")).quantize(Decimal("0.01")),
-                tcs_applicable=(purpose_code == "P1007"),
-                tcs_rate=Decimal("0.005") if purpose_code == "P1007" else Decimal("0"),
+                fee_inr=fee_inr,
                 purpose_code=purpose_code,
+                merchant_country=mid_to_country.get(m_id, "US"),
                 status=status,
             )
             if status in (TransactionStatus.settled, TransactionStatus.fx_converted):

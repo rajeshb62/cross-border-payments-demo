@@ -3,9 +3,12 @@
 Revision ID: 0002
 Revises: 0001
 Create Date: 2026-03-24
+
+Note: uses ADD COLUMN IF NOT EXISTS throughout so this migration is safe to
+run against both fresh installs (columns already present from 0001) and
+upgrades from an older version of 0001 that lacked these columns.
 """
 from alembic import op
-import sqlalchemy as sa
 
 revision = "0002"
 down_revision = "0001"
@@ -14,62 +17,54 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add upi_confirmed to transaction status enum
+    # Ensure upi_confirmed exists in the enum (idempotent)
     op.execute("ALTER TYPE transaction_status_enum ADD VALUE IF NOT EXISTS 'upi_confirmed' AFTER 'inr_collected'")
 
-    # Add new merchant columns
-    op.add_column("merchants", sa.Column("business_type", sa.String(50), nullable=True))
-    op.add_column("merchants", sa.Column("website_url", sa.String(500), nullable=True))
-    op.add_column("merchants", sa.Column("incorporation_number", sa.String(100), nullable=True))
-    op.add_column("merchants", sa.Column("kyb_status", sa.String(50), nullable=True, server_default="PENDING"))
+    # Ensure enum types exist (idempotent)
+    op.execute("DO $$ BEGIN CREATE TYPE kyb_status_enum AS ENUM ('PENDING', 'UNDER_REVIEW', 'APPROVED', 'REJECTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE business_type_enum AS ENUM ('ECOMMERCE', 'SAAS', 'MARKETPLACE', 'D2C'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")
 
-    # Add new transaction columns — UPI intent
-    op.add_column("transactions", sa.Column("upi_deep_link", sa.String(1000), nullable=True))
-    op.add_column("transactions", sa.Column("upi_qr_payload", sa.String(1000), nullable=True))
-    op.add_column("transactions", sa.Column("vpa", sa.String(100), nullable=True))
-    op.add_column("transactions", sa.Column("upi_ref", sa.String(100), nullable=True))
-    op.add_column("transactions", sa.Column("payment_expires_at", sa.DateTime(timezone=True), nullable=True))
+    # Merchant columns
+    op.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS kyb_status VARCHAR(50) NOT NULL DEFAULT 'PENDING'")
+    op.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS business_type VARCHAR(50)")
+    op.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS website_url VARCHAR(500)")
+    op.execute("ALTER TABLE merchants ADD COLUMN IF NOT EXISTS incorporation_number VARCHAR(100)")
 
-    # OPGSP cap
-    op.add_column("transactions", sa.Column("usd_equivalent", sa.Numeric(18, 4), nullable=True))
-    op.add_column("transactions", sa.Column("opgsp_cap_applied", sa.Boolean(), nullable=True))
+    # Transaction columns — UPI intent
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS upi_deep_link VARCHAR(1000)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS upi_qr_payload VARCHAR(1000)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS vpa VARCHAR(100)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS upi_ref VARCHAR(100)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_expires_at TIMESTAMPTZ")
 
-    # FX rate locking
-    op.add_column("transactions", sa.Column("fx_rate_locked", sa.Numeric(18, 6), nullable=True))
-    op.add_column("transactions", sa.Column("fx_rate_locked_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("transactions", sa.Column("fx_rate_expires_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("transactions", sa.Column("fx_rate_final", sa.Numeric(18, 6), nullable=True))
+    # Transaction columns — OPGSP cap
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS usd_equivalent NUMERIC(18,4)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS opgsp_cap_applied BOOLEAN DEFAULT FALSE")
 
-    # Collection and settlement tracking
-    op.add_column("transactions", sa.Column("amount_inr_collected", sa.Numeric(18, 4), nullable=True))
-    op.add_column("transactions", sa.Column("merchant_country", sa.String(10), nullable=True))
-    op.add_column("transactions", sa.Column("opgsp_ref", sa.String(100), nullable=True))
-    op.add_column("transactions", sa.Column("settlement_initiated_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("transactions", sa.Column("settlement_completed_at", sa.DateTime(timezone=True), nullable=True))
+    # Transaction columns — FX rate locking
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fx_rate_locked NUMERIC(18,6)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fx_rate_locked_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fx_rate_expires_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fx_rate_final NUMERIC(18,6)")
+
+    # Transaction columns — settlement tracking
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS amount_inr_collected NUMERIC(18,4)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS merchant_country VARCHAR(10)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS opgsp_ref VARCHAR(100)")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS settlement_initiated_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS settlement_completed_at TIMESTAMPTZ")
 
 
 def downgrade() -> None:
-    # Remove transaction columns
-    op.drop_column("transactions", "settlement_completed_at")
-    op.drop_column("transactions", "settlement_initiated_at")
-    op.drop_column("transactions", "opgsp_ref")
-    op.drop_column("transactions", "merchant_country")
-    op.drop_column("transactions", "amount_inr_collected")
-    op.drop_column("transactions", "fx_rate_final")
-    op.drop_column("transactions", "fx_rate_expires_at")
-    op.drop_column("transactions", "fx_rate_locked_at")
-    op.drop_column("transactions", "fx_rate_locked")
-    op.drop_column("transactions", "opgsp_cap_applied")
-    op.drop_column("transactions", "usd_equivalent")
-    op.drop_column("transactions", "payment_expires_at")
-    op.drop_column("transactions", "upi_ref")
-    op.drop_column("transactions", "vpa")
-    op.drop_column("transactions", "upi_qr_payload")
-    op.drop_column("transactions", "upi_deep_link")
+    for col in [
+        "settlement_completed_at", "settlement_initiated_at", "opgsp_ref",
+        "merchant_country", "amount_inr_collected", "fx_rate_final",
+        "fx_rate_expires_at", "fx_rate_locked_at", "fx_rate_locked",
+        "opgsp_cap_applied", "usd_equivalent", "payment_expires_at",
+        "upi_ref", "vpa", "upi_qr_payload", "upi_deep_link",
+    ]:
+        op.execute(f"ALTER TABLE transactions DROP COLUMN IF EXISTS {col}")
 
-    # Remove merchant columns
-    op.drop_column("merchants", "kyb_status")
-    op.drop_column("merchants", "incorporation_number")
-    op.drop_column("merchants", "website_url")
-    op.drop_column("merchants", "business_type")
-    # Note: upi_confirmed enum value cannot be removed from PostgreSQL enum without recreating it
+    for col in ["kyb_status", "incorporation_number", "website_url", "business_type"]:
+        op.execute(f"ALTER TABLE merchants DROP COLUMN IF EXISTS {col}")
+    # Note: upi_confirmed cannot be removed from a Postgres enum without recreating it
