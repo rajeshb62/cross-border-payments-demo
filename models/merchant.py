@@ -82,7 +82,7 @@ class VirtualAccount(Base):
         UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=False
     )
     inr_account_number: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
-    ifsc_code: Mapped[str] = mapped_column(String(20), nullable=False, default="EXIMPE0001")
+    ifsc_code: Mapped[str] = mapped_column(String(20), nullable=False, default="CROSS_BORDER_APP0001")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

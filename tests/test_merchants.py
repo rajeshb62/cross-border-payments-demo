@@ -20,7 +20,7 @@ async def test_create_merchant_creates_virtual_account(db):
     assert len(merchant.virtual_accounts) == 1
     va = merchant.virtual_accounts[0]
     assert len(va.inr_account_number) == 12
-    assert va.ifsc_code == "EXIMPE0001"
+    assert va.ifsc_code == "CROSS_BORDER_APP0001"
     assert va.is_active is True
 
 

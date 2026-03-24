@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from api.routes import merchants, payments, fx_rates, reconciliation
 from core.config import settings
 from core.exceptions import (
-    EximPeBaseException,
+    CrossBorderAppBaseException,
     MerchantNotFoundError,
     MerchantNotApprovedError,
     TransactionNotFoundError,
@@ -14,7 +14,7 @@ from core.exceptions import (
 )
 
 app = FastAPI(
-    title="EximPe — Cross-Border Payments for Foreign Merchants",
+    title="CrossBorderApp — Cross-Border Payments for Foreign Merchants",
     version="2.0.0",
     description=(
         "Foreign merchants (RBI PA-CB / OPGSP licensed) collect INR payments from Indian customers "
@@ -53,8 +53,8 @@ async def invalid_state_handler(request: Request, exc: InvalidTransactionStateEr
     return JSONResponse(status_code=409, content={"error": "invalid_state_transition", "detail": str(exc)})
 
 
-@app.exception_handler(EximPeBaseException)
-async def base_handler(request: Request, exc: EximPeBaseException):
+@app.exception_handler(CrossBorderAppBaseException)
+async def base_handler(request: Request, exc: CrossBorderAppBaseException):
     return JSONResponse(status_code=400, content={"error": "payment_error", "detail": str(exc)})
 
 

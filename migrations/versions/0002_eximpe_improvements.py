@@ -1,4 +1,4 @@
-"""EximPe OPGSP improvements — UPI intent, KYB, FX lock, settlement tracking
+"""CrossBorderApp OPGSP improvements — UPI intent, KYB, FX lock, settlement tracking
 
 Revision ID: 0002
 Revises: 0001

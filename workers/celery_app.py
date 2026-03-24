@@ -4,7 +4,7 @@ from celery.schedules import crontab
 from core.config import settings
 
 celery_app = Celery(
-    "eximpe_payments",
+    "cross_border_app_payments",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
     include=["workers.payment_worker", "workers.reconciliation_worker", "workers.fx_worker", "workers.kyb_worker"],

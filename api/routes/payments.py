@@ -105,11 +105,11 @@ async def initiate_payment(
 async def upi_webhook(
     body: UPIWebhookPayload,
     db: AsyncSession = Depends(get_db),
-    x_eximpe_signature: Optional[str] = Header(None),
+    x_cross_border_app_signature: Optional[str] = Header(None),
 ):
     """
     Receive UPI payment confirmation webhook from payment aggregator.
-    Validates HMAC-SHA256 signature from X-EximPe-Signature header.
+    Validates HMAC-SHA256 signature from X-CrossBorderApp-Signature header.
     """
     # Validate webhook signature
     body_dict = body.model_dump(mode="json")
@@ -121,7 +121,7 @@ async def upi_webhook(
         hashlib.sha256,
     ).hexdigest()
 
-    if x_eximpe_signature is None or not hmac.compare_digest(x_eximpe_signature, expected_sig):
+    if x_cross_border_app_signature is None or not hmac.compare_digest(x_cross_border_app_signature, expected_sig):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     await payment_service.process_upi_webhook(body.model_dump(), db)

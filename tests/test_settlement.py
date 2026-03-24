@@ -25,7 +25,7 @@ async def _setup_merchant(db, email, currency=SettlementCurrency.USD):
     va = VirtualAccount(
         merchant_id=merchant.id,
         inr_account_number=str(random.randint(100_000_000_000, 999_999_999_999)),
-        ifsc_code="EXIMPE0001", is_active=True,
+        ifsc_code="CROSS_BORDER_APP0001", is_active=True,
     )
     db.add(va)
     await db.commit()

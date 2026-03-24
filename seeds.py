@@ -1,5 +1,5 @@
 """
-Demo seed data for EximPe.
+Demo seed data for CrossBorderApp.
 Creates 3 merchants (Acme SaaS, Berlin Marketplace, Singapore Retailer)
 with virtual accounts and 5 sample transactions.
 
@@ -88,7 +88,7 @@ async def seed():
                 va = VirtualAccount(
                     merchant_id=merchant.id,
                     inr_account_number=str(hash(m_data["email"]) % 10**12).zfill(12),
-                    ifsc_code="EXIMPE0001",
+                    ifsc_code="CROSS_BORDER_APP0001",
                     is_active=True,
                 )
                 db.add(va)

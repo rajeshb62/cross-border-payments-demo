@@ -1,20 +1,20 @@
-class EximPeBaseException(Exception):
+class CrossBorderAppBaseException(Exception):
     pass
 
-class MerchantNotFoundError(EximPeBaseException):
+class MerchantNotFoundError(CrossBorderAppBaseException):
     pass
 
-class MerchantNotApprovedError(EximPeBaseException):
+class MerchantNotApprovedError(CrossBorderAppBaseException):
     pass
 
-class TransactionNotFoundError(EximPeBaseException):
+class TransactionNotFoundError(CrossBorderAppBaseException):
     pass
 
-class FXRateUnavailableError(EximPeBaseException):
+class FXRateUnavailableError(CrossBorderAppBaseException):
     pass
 
-class InvalidTransactionStateError(EximPeBaseException):
+class InvalidTransactionStateError(CrossBorderAppBaseException):
     pass
 
-class OGPSPLimitExceededError(EximPeBaseException):
+class OGPSPLimitExceededError(CrossBorderAppBaseException):
     pass

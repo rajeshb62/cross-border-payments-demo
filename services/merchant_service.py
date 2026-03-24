@@ -34,7 +34,7 @@ async def create_merchant(data: dict, db: AsyncSession) -> Merchant:
     virtual_account = VirtualAccount(
         merchant_id=merchant.id,
         inr_account_number=_generate_account_number(),
-        ifsc_code="EXIMPE0001",
+        ifsc_code="CROSS_BORDER_APP0001",
         is_active=True,
     )
     db.add(virtual_account)
@@ -70,7 +70,7 @@ async def onboard_merchant(data: dict, db: AsyncSession) -> Merchant:
     virtual_account = VirtualAccount(
         merchant_id=merchant.id,
         inr_account_number=_generate_account_number(),
-        ifsc_code="EXIMPE0001",
+        ifsc_code="CROSS_BORDER_APP0001",
         is_active=True,
     )
     db.add(virtual_account)

@@ -1,21 +1,21 @@
-# EximPe — Cross-Border Payments Demo
+# CrossBorderApp — Cross-Border Payments Demo
 
-A FastAPI backend demo modelling [EximPe](https://eximpe.com), an **RBI PA-CB licensed cross-border payment aggregator**.
+A FastAPI backend demo modelling [CrossBorderApp](https://cross_border_app.com), an **RBI PA-CB licensed cross-border payment aggregator**.
 
-Foreign merchants (Singapore, UAE, US, UK, HK, etc.) collect INR payments from Indian customers via UPI, NetBanking, and cards — and receive settlement in their preferred foreign currency. EximPe operates under RBI's **OPGSP / PA-CB** regulatory model. **This is not an LRS / outward remittance product.**
+Foreign merchants (Singapore, UAE, US, UK, HK, etc.) collect INR payments from Indian customers via UPI, NetBanking, and cards — and receive settlement in their preferred foreign currency. CrossBorderApp operates under RBI's **OPGSP / PA-CB** regulatory model. **This is not an LRS / outward remittance product.**
 
 ---
 
-## What EximPe Does
+## What CrossBorderApp Does
 
 ```
 Indian Customer
       │  pays INR via UPI / NetBanking / Card
       ▼
-EximPe Virtual Account  (unique INR account per merchant, IFSC: EXIMPE0001)
+CrossBorderApp Virtual Account  (unique INR account per merchant, IFSC: CROSS_BORDER_APP0001)
       │  confirms UPI payment, locks FX rate
       ▼
-EximPe FX Engine        (live rates from frankfurter.app, 120s rate lock)
+CrossBorderApp FX Engine        (live rates from frankfurter.app, 120s rate lock)
       │  deducts 1.5% platform fee
       ▼
 Merchant Offshore Bank  (USD / SGD / AED / GBP / HKD)
@@ -28,7 +28,7 @@ Reconciliation Log
 
 ## Regulatory Model
 
-| | EximPe (this demo) | LRS / Outward Remittance |
+| | CrossBorderApp (this demo) | LRS / Outward Remittance |
 |---|---|---|
 | **Regulation** | RBI PA-CB / OPGSP | RBI LRS |
 | **Who sends money** | Foreign merchant collects from India | Indian individual sends abroad |

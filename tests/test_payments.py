@@ -27,7 +27,7 @@ async def _create_merchant_with_va(db, email="pay@test.io", currency=SettlementC
     va = VirtualAccount(
         merchant_id=merchant.id,
         inr_account_number=str(random.randint(100_000_000_000, 999_999_999_999)),
-        ifsc_code="EXIMPE0001",
+        ifsc_code="CROSS_BORDER_APP0001",
         is_active=True,
     )
     db.add(va)
@@ -167,7 +167,7 @@ async def test_merchant_not_approved_raises(db):
     va = VirtualAccount(
         merchant_id=pending_merchant.id,
         inr_account_number=str(random.randint(100_000_000_000, 999_999_999_999)),
-        ifsc_code="EXIMPE0001",
+        ifsc_code="CROSS_BORDER_APP0001",
         is_active=True,
     )
     db.add(va)

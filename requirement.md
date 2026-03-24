@@ -1,10 +1,10 @@
-# EximPe — Cross-Border Payments for Foreign Merchants
+# CrossBorderApp — Cross-Border Payments for Foreign Merchants
 
 ## Problem Statement
 
-Foreign merchants (outside India) want to collect payments from Indian customers without needing an Indian legal entity. Indian customers pay using familiar local methods (UPI, NetBanking, card). EximPe sits in the middle: collecting INR on behalf of the merchant, converting it to their preferred settlement currency, and wiring it to their offshore bank account.
+Foreign merchants (outside India) want to collect payments from Indian customers without needing an Indian legal entity. Indian customers pay using familiar local methods (UPI, NetBanking, card). CrossBorderApp sits in the middle: collecting INR on behalf of the merchant, converting it to their preferred settlement currency, and wiring it to their offshore bank account.
 
-**Flow:** Indian customer pays in INR → EximPe collects via virtual account → converts to merchant's settlement currency → settles to merchant's offshore account.
+**Flow:** Indian customer pays in INR → CrossBorderApp collects via virtual account → converts to merchant's settlement currency → settles to merchant's offshore account.
 
 ---
 
@@ -61,7 +61,7 @@ Indian Customer
 Virtual INR Account (per merchant)
       |
       ↓
-EximPe Payment Pipeline (Celery)
+CrossBorderApp Payment Pipeline (Celery)
       |
       ├── Simulate INR collection
       ├── Fetch live FX rate (frankfurter.app)

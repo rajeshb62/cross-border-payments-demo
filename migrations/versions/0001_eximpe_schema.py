@@ -1,4 +1,4 @@
-"""EximPe initial schema
+"""CrossBorderApp initial schema
 
 Revision ID: 0001
 Revises:
@@ -75,7 +75,7 @@ def upgrade() -> None:
             id UUID PRIMARY KEY,
             merchant_id UUID NOT NULL REFERENCES merchants(id),
             inr_account_number VARCHAR(20) NOT NULL UNIQUE,
-            ifsc_code VARCHAR(20) NOT NULL DEFAULT 'EXIMPE0001',
+            ifsc_code VARCHAR(20) NOT NULL DEFAULT 'CROSS_BORDER_APP0001',
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )

@@ -92,7 +92,7 @@ async def initiate_payment(
 
     # 7. Generate UPI intent fields using tx.id
     tx_id_short = str(tx.id)[:8]
-    vpa = f"eximpe.{tx_id_short}@icici"
+    vpa = f"cross_border_app.{tx_id_short}@icici"
     upi_deep_link = (
         f"upi://pay?pa={vpa}&pn={merchant.name}&am={inr_amount}&cu=INR&tn={tx_id_short}"
     )
