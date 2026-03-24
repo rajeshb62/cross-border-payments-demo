@@ -1,101 +1,65 @@
-import enum
 import uuid
 from datetime import datetime
+from decimal import Decimal
+import enum
 
-from sqlalchemy import (
-    Column, DateTime, Enum, ForeignKey, Numeric, String, Text, func
-)
+from sqlalchemy import String, Enum as SAEnum, Numeric, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
+from models.merchant import SettlementCurrency
+
+
+class PaymentMethod(str, enum.Enum):
+    upi = "upi"
+    netbanking = "netbanking"
+    card = "card"
 
 
 class TransactionStatus(str, enum.Enum):
-    INITIATED = "initiated"
-    RATE_LOCKED = "rate_locked"
-    COMPLIANCE_CHECK = "compliance_check"
-    FUNDS_DEBITED = "funds_debited"
-    FX_EXECUTED = "fx_executed"
-    FUNDS_CREDITED = "funds_credited"
-    PAYOUT_PENDING = "payout_pending"               # payment submitted to Airwallex; awaiting LOCAL rail delivery
-    SETTLED = "settled"
-    FAILED = "failed"
-
-
-# Valid forward transitions
-ALLOWED_TRANSITIONS: dict[TransactionStatus, set[TransactionStatus]] = {
-    TransactionStatus.INITIATED: {TransactionStatus.RATE_LOCKED, TransactionStatus.FAILED},
-    TransactionStatus.RATE_LOCKED: {TransactionStatus.COMPLIANCE_CHECK, TransactionStatus.FAILED},
-    TransactionStatus.COMPLIANCE_CHECK: {TransactionStatus.FUNDS_DEBITED, TransactionStatus.FAILED},
-    TransactionStatus.FUNDS_DEBITED: {TransactionStatus.FX_EXECUTED, TransactionStatus.FAILED},
-    TransactionStatus.FX_EXECUTED: {TransactionStatus.FUNDS_CREDITED, TransactionStatus.FAILED},
-    TransactionStatus.FUNDS_CREDITED: {TransactionStatus.PAYOUT_PENDING, TransactionStatus.FAILED},
-    TransactionStatus.PAYOUT_PENDING: {TransactionStatus.SETTLED, TransactionStatus.FAILED},
-    TransactionStatus.SETTLED: set(),
-    TransactionStatus.FAILED: set(),
-}
+    initiated = "initiated"
+    inr_collected = "inr_collected"
+    fx_converted = "fx_converted"
+    settled = "settled"
+    failed = "failed"
 
 
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    idempotency_key = Column(String(255), unique=True, nullable=False, index=True)
-    user_id = Column(String(255), nullable=False, index=True)
-
-    amount_inr = Column(Numeric(18, 4), nullable=False)
-    amount_usd = Column(Numeric(18, 4), nullable=True)
-    exchange_rate = Column(Numeric(10, 4), nullable=True)
-
-    # FEMA purpose code e.g. P0001, P0002, P0003
-    purpose_code = Column(String(10), nullable=False)
-    purpose_description = Column(String(255), nullable=True)
-
-    # Education via loan flag — affects TCS rate
-    is_education_loan = Column(String(5), nullable=False, default="false")
-
-    status = Column(
-        Enum(TransactionStatus, name="transaction_status", create_type=False,
-             values_callable=lambda x: [e.value for e in x]),
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    merchant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=False
+    )
+    virtual_account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("virtual_accounts.id"), nullable=False
+    )
+    payment_method: Mapped[PaymentMethod] = mapped_column(
+        SAEnum(PaymentMethod, name="payment_method_enum"), nullable=False
+    )
+    inr_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    fx_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=True)
+    settlement_currency: Mapped[SettlementCurrency] = mapped_column(
+        SAEnum(SettlementCurrency, name="settlement_currency_enum"), nullable=False
+    )
+    settlement_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
+    fee_inr: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
+    tcs_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tcs_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False, default=Decimal("0"))
+    purpose_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[TransactionStatus] = mapped_column(
+        SAEnum(TransactionStatus, name="transaction_status_enum"),
         nullable=False,
-        default=TransactionStatus.INITIATED,
-        index=True,
+        default=TransactionStatus.initiated,
+    )
+    payer_upi_id: Mapped[str] = mapped_column(String(100), nullable=True)
+    payer_bank: Mapped[str] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    tcs_amount = Column(Numeric(18, 4), nullable=True)
-    rate_lock_expires_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Wire reference from FX provider
-    fx_reference_id = Column(String(255), nullable=True)
-
-    # Airwallex payment_id — set when payment is submitted to LOCAL rails
-    payout_order_id = Column(String(255), nullable=True, index=True)
-
-    beneficiary_id = Column(UUID(as_uuid=True), ForeignKey("beneficiaries.id"), nullable=True, index=True)
-
-    failure_reason = Column(Text, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    events = relationship("TransactionEvent", back_populates="transaction", order_by="TransactionEvent.created_at")
-    ledger_entries = relationship("LedgerEntry", back_populates="transaction")
-    beneficiary = relationship("Beneficiary", back_populates="transactions")
-
-
-class TransactionEvent(Base):
-    __tablename__ = "transaction_events"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transaction_id = Column(UUID(as_uuid=True), ForeignKey("transactions.id"), nullable=False, index=True)
-
-    from_status = Column(Enum(TransactionStatus, name="transaction_status", create_type=False,
-                             values_callable=lambda x: [e.value for e in x]), nullable=True)
-    to_status = Column(Enum(TransactionStatus, name="transaction_status", create_type=False,
-                            values_callable=lambda x: [e.value for e in x]), nullable=False)
-    note = Column(Text, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    transaction = relationship("Transaction", back_populates="events")
+    merchant = relationship("Merchant", back_populates="transactions")
+    virtual_account = relationship("VirtualAccount")
+    reconciliation_logs = relationship("ReconciliationLog", back_populates="transaction", lazy="selectin")

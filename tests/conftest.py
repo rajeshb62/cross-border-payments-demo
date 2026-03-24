@@ -2,7 +2,6 @@
 import asyncio
 import uuid
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -10,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from core.database import Base
 
-# Use SQLite for tests — no PostgreSQL required
+# Import all models so Base.metadata is populated
+import models.merchant       # noqa: F401
+import models.transaction    # noqa: F401
+import models.fx_rate        # noqa: F401
+import models.reconciliation # noqa: F401
+
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 

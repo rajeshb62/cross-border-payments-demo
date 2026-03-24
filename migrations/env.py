@@ -9,11 +9,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import Base and all models so Alembic can detect them
 from core.database import Base  # noqa: F401
-import models.transaction  # noqa: F401
-import models.ledger       # noqa: F401
-import models.compliance   # noqa: F401
-import models.rate         # noqa: F401
-import models.beneficiary  # noqa: F401
+import models.merchant          # noqa: F401
+import models.transaction       # noqa: F401
+import models.fx_rate           # noqa: F401
+import models.reconciliation    # noqa: F401
 
 config = context.config
 
