@@ -31,8 +31,8 @@ async def test_get_rate_uses_cache_when_fresh(db):
 
 @pytest.mark.asyncio
 async def test_get_all_cached_rates_returns_list(db):
-    fx = FxRate(currency_pair="INR_EUR", rate=Decimal("90.5"))
+    fx = FxRate(currency_pair="INR_SGD", rate=Decimal("62.2"))
     db.add(fx)
     await db.commit()
     rates = await get_all_cached_rates(db)
-    assert any(r.currency_pair == "INR_EUR" for r in rates)
+    assert any(r.currency_pair == "INR_SGD" for r in rates)

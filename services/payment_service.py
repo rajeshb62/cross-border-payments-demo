@@ -5,43 +5,22 @@
 #   against the virtual account. Implement idempotency keys for retries.
 
 import uuid
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
-from core.exceptions import TransactionNotFoundError, InvalidTransactionStateError
-from models.merchant import Merchant, VirtualAccount, SettlementCurrency
+from core.exceptions import (
+    TransactionNotFoundError,
+    InvalidTransactionStateError,
+    OGPSPLimitExceededError,
+)
+from models.merchant import Merchant, VirtualAccount
 from models.transaction import Transaction, TransactionStatus, PaymentMethod
-
-
-# TCS purpose code rules (demo subset — FEMA guidelines)
-TCS_RULES = {
-    "P0802": {"rate": Decimal("0"), "applicable": False},   # Software/IT services export — 0%
-    "P1007": {"rate": Decimal("0.005"), "applicable": True}, # Education-related — 0.5%
-}
-DEFAULT_TCS = {"rate": Decimal("0"), "applicable": False}
-
-
-def compute_tcs(purpose_code: str, inr_amount: Decimal) -> tuple[bool, Decimal, Decimal]:
-    """
-    Returns (tcs_applicable, tcs_rate, tcs_amount_inr).
-    P0802 → 0%; P1007 → 0.5%; others → 0% below ₹7L, 20% above.
-    """
-    rule = TCS_RULES.get(purpose_code)
-    if rule:
-        tcs_amount = (inr_amount * rule["rate"]).quantize(Decimal("0.01"))
-        return rule["applicable"], rule["rate"], tcs_amount
-
-    # Default FEMA rule for other purpose codes
-    threshold = Decimal("700000")
-    if inr_amount <= threshold:
-        return False, Decimal("0"), Decimal("0")
-    else:
-        rate = Decimal("0.20")
-        tcs_amount = ((inr_amount - threshold) * rate).quantize(Decimal("0.01"))
-        return True, rate, tcs_amount
+from services import fx_service
+from services.merchant_service import check_merchant_approved
 
 
 async def initiate_payment(
@@ -49,11 +28,15 @@ async def initiate_payment(
     inr_amount: Decimal,
     payment_method: str,
     purpose_code: str,
-    payer_info: dict,
+    payer_upi_id: str | None,
+    payer_bank: str | None,
     db: AsyncSession,
 ) -> Transaction:
-    """Create a Transaction in status=initiated and return it."""
-    # Resolve virtual account for this merchant
+    """Create a Transaction in status=initiated and return it with UPI intent details."""
+    # 1. Verify merchant is KYB approved
+    merchant = await check_merchant_approved(merchant_id, db)
+
+    # 2. Resolve virtual account for this merchant
     result = await db.execute(
         select(VirtualAccount)
         .where(VirtualAccount.merchant_id == merchant_id)
@@ -64,16 +47,28 @@ async def initiate_payment(
     if not virtual_account:
         raise InvalidTransactionStateError(f"No active virtual account for merchant {merchant_id}")
 
-    # Resolve settlement currency from merchant
-    merchant_result = await db.execute(select(Merchant).where(Merchant.id == merchant_id))
-    merchant = merchant_result.scalar_one_or_none()
-    if not merchant:
-        raise InvalidTransactionStateError(f"Merchant {merchant_id} not found")
+    # 3. Compute USD equivalent for OPGSP cap check
+    inr_to_usd_rate = await fx_service.get_rate("INR", "USD", db)
+    # inr_to_usd_rate is INR per 1 USD; so USD = inr_amount / rate
+    usd_equivalent = (inr_amount / inr_to_usd_rate).quantize(Decimal("0.0001"))
 
-    tcs_applicable, tcs_rate, _ = compute_tcs(purpose_code, inr_amount)
+    opgsp_cap = Decimal(str(settings.OPGSP_CAP_USD))
+    if usd_equivalent > opgsp_cap:
+        max_inr = (opgsp_cap * inr_to_usd_rate).quantize(Decimal("0.01"))
+        raise OGPSPLimitExceededError(
+            f"Amount exceeds OPGSP cap of USD {settings.OPGSP_CAP_USD:.2f} "
+            f"(~INR {max_inr}). Requested: USD {usd_equivalent:.2f}"
+        )
 
+    # 4. Lock FX rate for settlement currency
+    now = datetime.now(timezone.utc)
+    locked_rate = await fx_service.get_rate("INR", merchant.settlement_currency.value, db)
+    rate_lock_expires = now + timedelta(seconds=settings.FX_RATE_LOCK_TTL_SECONDS)
+
+    # 5. Compute fee
     fee_inr = (inr_amount * Decimal(str(settings.PLATFORM_FEE_RATE))).quantize(Decimal("0.01"))
 
+    # 6. Create the transaction (need ID for UPI VPA generation)
     tx = Transaction(
         merchant_id=merchant_id,
         virtual_account_id=virtual_account.id,
@@ -81,14 +76,32 @@ async def initiate_payment(
         inr_amount=inr_amount,
         settlement_currency=merchant.settlement_currency,
         fee_inr=fee_inr,
-        tcs_applicable=tcs_applicable,
-        tcs_rate=tcs_rate,
         purpose_code=purpose_code,
         status=TransactionStatus.initiated,
-        payer_upi_id=payer_info.get("upi_id"),
-        payer_bank=payer_info.get("bank"),
+        payer_upi_id=payer_upi_id,
+        payer_bank=payer_bank,
+        usd_equivalent=usd_equivalent,
+        opgsp_cap_applied=False,
+        fx_rate_locked=locked_rate,
+        fx_rate_locked_at=now,
+        fx_rate_expires_at=rate_lock_expires,
+        merchant_country=merchant.country,
     )
     db.add(tx)
+    await db.flush()  # get tx.id
+
+    # 7. Generate UPI intent fields using tx.id
+    tx_id_short = str(tx.id)[:8]
+    vpa = f"eximpe.{tx_id_short}@icici"
+    upi_deep_link = (
+        f"upi://pay?pa={vpa}&pn={merchant.name}&am={inr_amount}&cu=INR&tn={tx_id_short}"
+    )
+    tx.vpa = vpa
+    tx.upi_deep_link = upi_deep_link
+    tx.upi_qr_payload = upi_deep_link
+    tx.payment_expires_at = now + timedelta(minutes=15)
+    tx.opgsp_ref = f"OPGSP{str(tx.id).replace('-', '')[:16].upper()}"
+
     await db.commit()
     await db.refresh(tx)
     return tx
@@ -107,6 +120,51 @@ async def simulate_inr_collection(transaction_id: uuid.UUID, db: AsyncSession) -
     tx.status = TransactionStatus.inr_collected
     await db.commit()
     await db.refresh(tx)
+    return tx
+
+
+async def process_upi_webhook(payload: dict, db: AsyncSession) -> Transaction:
+    """
+    Handle UPI payment webhook from payment aggregator.
+    Finds transaction by VPA, updates status based on payment outcome.
+    """
+    vpa = payload.get("vpa")
+    if not vpa:
+        raise InvalidTransactionStateError("Webhook payload missing 'vpa' field")
+
+    result = await db.execute(select(Transaction).where(Transaction.vpa == vpa))
+    tx = result.scalar_one_or_none()
+    if not tx:
+        raise TransactionNotFoundError(f"No transaction found for VPA {vpa}")
+
+    allowed_statuses = {TransactionStatus.initiated, TransactionStatus.inr_collected}
+    if tx.status not in allowed_statuses:
+        raise InvalidTransactionStateError(
+            f"Cannot process webhook for transaction in status {tx.status}"
+        )
+
+    webhook_status = payload.get("status", "").upper()
+    if webhook_status == "SUCCESS":
+        tx.upi_ref = payload.get("upi_ref")
+        amount_inr = payload.get("amount_inr")
+        if amount_inr is not None:
+            tx.amount_inr_collected = Decimal(str(amount_inr))
+        tx.status = TransactionStatus.upi_confirmed
+        await db.commit()
+        await db.refresh(tx)
+
+        # Trigger settlement pipeline
+        try:
+            from workers.payment_worker import process_payment_pipeline
+            process_payment_pipeline.delay(str(tx.id))
+        except Exception:
+            pass  # Don't fail webhook response if Celery is unavailable
+
+    elif webhook_status == "FAILED":
+        tx.status = TransactionStatus.failed
+        await db.commit()
+        await db.refresh(tx)
+
     return tx
 
 

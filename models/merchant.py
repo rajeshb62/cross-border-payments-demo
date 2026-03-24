@@ -11,12 +11,26 @@ from core.database import Base
 
 class SettlementCurrency(str, enum.Enum):
     USD = "USD"
-    EUR = "EUR"
+    EUR = "EUR"   # kept in DB enum for backward compat; restricted at API layer
     GBP = "GBP"
     SGD = "SGD"
     AED = "AED"
     HKD = "HKD"
-    CNH = "CNH"
+    CNH = "CNH"   # kept in DB enum for backward compat; restricted at API layer
+
+
+class BusinessType(str, enum.Enum):
+    ECOMMERCE = "ECOMMERCE"
+    SAAS = "SAAS"
+    MARKETPLACE = "MARKETPLACE"
+    D2C = "D2C"
+
+
+class KYBStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    UNDER_REVIEW = "UNDER_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
 
 
 class MerchantStatus(str, enum.Enum):
@@ -41,6 +55,19 @@ class Merchant(Base):
         nullable=False,
         default=MerchantStatus.pending_kyc,
     )
+    # KYB / onboarding fields
+    kyb_status: Mapped[KYBStatus] = mapped_column(
+        SAEnum(KYBStatus, name="kyb_status_enum"),
+        nullable=False,
+        default=KYBStatus.PENDING,
+    )
+    business_type: Mapped[BusinessType] = mapped_column(
+        SAEnum(BusinessType, name="business_type_enum"),
+        nullable=True,
+    )
+    website_url: Mapped[str] = mapped_column(String(500), nullable=True)
+    incorporation_number: Mapped[str] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     virtual_accounts = relationship("VirtualAccount", back_populates="merchant", lazy="selectin")

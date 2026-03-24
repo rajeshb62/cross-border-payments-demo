@@ -20,6 +20,7 @@ class PaymentMethod(str, enum.Enum):
 class TransactionStatus(str, enum.Enum):
     initiated = "initiated"
     inr_collected = "inr_collected"
+    upi_confirmed = "upi_confirmed"
     fx_converted = "fx_converted"
     settled = "settled"
     failed = "failed"
@@ -45,8 +46,6 @@ class Transaction(Base):
     )
     settlement_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
     fee_inr: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
-    tcs_applicable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    tcs_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False, default=Decimal("0"))
     purpose_code: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[TransactionStatus] = mapped_column(
         SAEnum(TransactionStatus, name="transaction_status_enum"),
@@ -55,6 +54,31 @@ class Transaction(Base):
     )
     payer_upi_id: Mapped[str] = mapped_column(String(100), nullable=True)
     payer_bank: Mapped[str] = mapped_column(String(100), nullable=True)
+
+    # UPI payment intent fields
+    upi_deep_link: Mapped[str] = mapped_column(String(1000), nullable=True)
+    upi_qr_payload: Mapped[str] = mapped_column(String(1000), nullable=True)
+    vpa: Mapped[str] = mapped_column(String(100), nullable=True)
+    upi_ref: Mapped[str] = mapped_column(String(100), nullable=True)
+    payment_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # OPGSP cap and USD equivalent
+    usd_equivalent: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
+    opgsp_cap_applied: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
+
+    # FX rate locking
+    fx_rate_locked: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=True)
+    fx_rate_locked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    fx_rate_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    fx_rate_final: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=True)
+
+    # Collection and settlement tracking
+    amount_inr_collected: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=True)
+    merchant_country: Mapped[str] = mapped_column(String(10), nullable=True)
+    opgsp_ref: Mapped[str] = mapped_column(String(100), nullable=True)
+    settlement_initiated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    settlement_completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

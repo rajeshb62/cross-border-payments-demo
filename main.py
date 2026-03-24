@@ -6,21 +6,36 @@ from core.config import settings
 from core.exceptions import (
     EximPeBaseException,
     MerchantNotFoundError,
+    MerchantNotApprovedError,
     TransactionNotFoundError,
     FXRateUnavailableError,
     InvalidTransactionStateError,
+    OGPSPLimitExceededError,
 )
 
 app = FastAPI(
     title="EximPe — Cross-Border Payments for Foreign Merchants",
-    version="1.0.0",
-    description="Foreign merchants collect INR payments from Indian customers and settle in their preferred currency.",
+    version="2.0.0",
+    description=(
+        "Foreign merchants (RBI PA-CB / OPGSP licensed) collect INR payments from Indian customers "
+        "and settle in their preferred currency (USD, SGD, AED, GBP, HKD)."
+    ),
 )
 
 
 @app.exception_handler(MerchantNotFoundError)
 async def merchant_not_found_handler(request: Request, exc: MerchantNotFoundError):
     return JSONResponse(status_code=404, content={"error": "merchant_not_found", "detail": str(exc)})
+
+
+@app.exception_handler(MerchantNotApprovedError)
+async def merchant_not_approved_handler(request: Request, exc: MerchantNotApprovedError):
+    return JSONResponse(status_code=403, content={"error": "merchant_not_approved", "detail": str(exc)})
+
+
+@app.exception_handler(OGPSPLimitExceededError)
+async def opgsp_limit_handler(request: Request, exc: OGPSPLimitExceededError):
+    return JSONResponse(status_code=422, content={"error": "opgsp_limit_exceeded", "detail": str(exc)})
 
 
 @app.exception_handler(TransactionNotFoundError)

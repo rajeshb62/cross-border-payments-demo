@@ -7,7 +7,7 @@ celery_app = Celery(
     "eximpe_payments",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["workers.payment_worker", "workers.reconciliation_worker", "workers.fx_worker"],
+    include=["workers.payment_worker", "workers.reconciliation_worker", "workers.fx_worker", "workers.kyb_worker"],
 )
 
 celery_app.conf.update(
