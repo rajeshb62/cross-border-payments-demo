@@ -26,6 +26,8 @@ MOCK_RATES = {
     "INR_AED": Decimal("0.044000"),
     "INR_GBP": Decimal("0.009500"),
     "INR_HKD": Decimal("0.093400"),
+    "INR_EUR": Decimal("0.011050"),   # ~90.5 INR/EUR
+    "INR_CNH": Decimal("0.086580"),   # ~11.55 INR/CNH
 }
 
 
